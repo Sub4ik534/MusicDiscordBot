@@ -114,4 +114,22 @@ def run_bot():
             except Exception as e:
                 print(e)
 
+        if message.content.startswith("/leave"):
+            try:
+                voice_clients[message.guild.id].stop()
+                await voice_clients[message.guild.id].disconnect()
+            except Exception as e:
+                print(e)
+
+        if message.content.startswith("/next"):
+            if queues[message.guild.id]:
+                voice_clients[message.guild.id].stop()
+                play_next_song(message.guild.id)
+            else:
+                await message.channel.send("В очереди больше нет треков")
+
+        if message.content.startswith("/clear"):
+            queues[message.guild.id] = []
+            await message.channel.send("Очередь очищена")
+
     client.run(TOKEN)

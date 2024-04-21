@@ -29,9 +29,11 @@ def run_bot():
         if guild_id not in queues:
             queues[guild_id] = []
         queues[guild_id].append(song)
+        if len(queues[guild_id]) == 1:  # If it's the only song, start playing
+            play_next_song(guild_id)
 
     def play_next_song(guild_id):
-        if queues[guild_id]:
+        if queues[guild_id] and not voice_clients[guild_id].is_playing():
             song = queues[guild_id].pop(0)
             player = discord.FFmpegOpusAudio(song['url'], **ffmpeg_options)
             voice_clients[guild_id].play(player, after=lambda e: play_next_song(guild_id) if e is None else None)
@@ -43,6 +45,13 @@ def run_bot():
     @client.event
     async def on_message(message):
         if message.content.startswith("/play"):
+            args = message.content.split()
+            if len(args) < 2:
+                await message.channel.send("Пожалуйста, укажите название трека или URL.")
+                return
+
+            track_query = ' '.join(args[1:])
+
             try:
                 voice_client = await message.author.voice.channel.connect()
                 voice_clients[voice_client.guild.id] = voice_client
@@ -55,18 +64,24 @@ def run_bot():
                     voice_client = await message.author.voice.channel.connect()
                     voice_clients[message.guild.id] = voice_client
 
-                url = message.content.split()[1]
+                if "http" not in track_query:
+                    track_query = f"ytsearch:{track_query}"
+
                 loop = asyncio.get_event_loop()
-                data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
+                data = await loop.run_in_executor(None, lambda: ytdl.extract_info(track_query, download=False))
 
-                song = data['url']
-                player = discord.FFmpegOpusAudio(song, **ffmpeg_options)
+                if 'entries' in data:
+                    # Take the first search result
+                    data = data['entries'][0]
 
-                voice_clients[message.guild.id].play(player)
-                song = {'url': data['url']}
+                song = {'url': data['url'], 'title': data.get('title', 'Unknown')}
+
+                if message.guild.id not in voice_clients:
+                    voice_client = await message.author.voice.channel.connect()
+                    voice_clients[message.guild.id] = voice_client
+
                 queue_song(message.guild.id, song)
-                if not voice_client.is_playing():
-                    play_next_song(message.guild.id)
+
             except Exception as e:
                 print(e)
 
@@ -82,19 +97,16 @@ def run_bot():
                 results = await loop.run_in_executor(None, lambda: ytdl.extract_info(f"ytsearch:{search_query}",
                                                                                      download=False))
                 video_url = results['entries'][0]['url']
+                print(video_url)
+                video_title = results['entries'][0].get('title', track_name)
 
-                song = {'url': video_url}
+                song = {'url': video_url, 'title': video_title}
                 queue_song(message.guild.id, song)
                 if not voice_clients[message.guild.id].is_playing():
                     play_next_song(message.guild.id)
 
-                player = discord.FFmpegOpusAudio(video_url, **ffmpeg_options)
-                voice_clients[message.guild.id].play(player)
-
-                response = f"Играет: {track_name} от {artist_name}"
             except Exception as e:
-                response = f"Проблемы при обработке ссылки из Spotify: {e}"
-            await message.channel.send(response)
+                print(e)
 
         if message.content.startswith("/pause"):
             try:
@@ -105,12 +117,6 @@ def run_bot():
         if message.content.startswith("/resume"):
             try:
                 voice_clients[message.guild.id].resume()
-            except Exception as e:
-                print(e)
-
-        if message.content.startswith("/stop"):
-            try:
-                voice_clients[message.guild.id].stop()
             except Exception as e:
                 print(e)
 
@@ -128,8 +134,25 @@ def run_bot():
             else:
                 await message.channel.send("В очереди больше нет треков")
 
+        if message.content.startswith("/stop"):
+            try:
+                voice_clients[message.guild.id].stop()
+            except Exception as e:
+                print(e)
+
         if message.content.startswith("/clear"):
+            voice_clients[message.guild.id].stop()
             queues[message.guild.id] = []
             await message.channel.send("Очередь очищена")
+
+        if message.content.startswith("/help"):
+            queues[message.guild.id] = []
+            await message.channel.send("/play 'ссылка' - команда для запуска музыки \n"
+                                       "/pause - поставить трек на паузу \n"
+                                       "/resume - включить трек \n"
+                                       "/stop - выключает трек \n"
+                                       "/leave - комманда, чтобы бот покинул канал\n"
+                                       "/next - следующий трек из очереди\n"
+                                       "/clear - очистка очереди")
 
     client.run(TOKEN)

@@ -35,7 +35,7 @@ def run_bot():
             play_next_song(guild_id)
 
     def play_next_song(guild_id):
-        if queues[guild_id]:
+        if queues[guild_id] and not voice_clients[guild_id].is_playing():
             song = queues[guild_id].pop(0)
             player = discord.FFmpegOpusAudio(song['url'], **ffmpeg_options)
             voice_clients[guild_id].play(player, after=lambda e: handle_end_of_song(e, guild_id, song))
@@ -79,7 +79,6 @@ def run_bot():
                 data = await loop.run_in_executor(None, lambda: ytdl.extract_info(track_query, download=False))
 
                 if 'entries' in data:
-                    # Take the first search result
                     data = data['entries'][0]
 
                 song = {'url': data['url'], 'title': data.get('title', 'Unknown')}

@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 
 def run_bot():
+    # Основные параметры
     load_dotenv()
     TOKEN = os.getenv('discord_token')
     client_id_ = os.getenv('YOUR_CLIENT_ID')
@@ -27,6 +28,7 @@ def run_bot():
     ffmpeg_options = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
                       'options': '-vn -filter:a "volume=0.25"'}
 
+    # Функция для очереди треков
     def queue_song(guild_id, song):
         if guild_id not in queues:
             queues[guild_id] = []
@@ -34,24 +36,28 @@ def run_bot():
         if len(queues[guild_id]) == 1:
             play_next_song(guild_id)
 
+    # Функция для запуска следующей песни
     def play_next_song(guild_id):
         if queues[guild_id] and not voice_clients[guild_id].is_playing():
             song = queues[guild_id].pop(0)
             player = discord.FFmpegOpusAudio(song['url'], **ffmpeg_options)
             voice_clients[guild_id].play(player, after=lambda e: handle_end_of_song(e, guild_id, song))
 
+    # Проверка зацикливания
     def handle_end_of_song(error, guild_id, song):
         if error is None:
             if loops.get(guild_id, False):
                 queues[guild_id].insert(0, song)
             play_next_song(guild_id)
 
+    # Проверка запуска бота
     @client.event
     async def on_ready():
         print(f'{client.user} готов к работе')
 
     @client.event
     async def on_message(message):
+        # Обычный поиск по ссылке и по названию
         if message.content.startswith("/play"):
             args = message.content.split()
             if len(args) < 2:
@@ -92,6 +98,7 @@ def run_bot():
             except Exception as e:
                 print(e)
 
+        # Поиск треков из Spotify
         if "open.spotify.com/track/" in message.content:
             track_id = message.content.split('track/')[1].split('?')[0]
             try:
@@ -104,7 +111,7 @@ def run_bot():
                 results = await loop.run_in_executor(None, lambda: ytdl.extract_info(f"ytsearch:{search_query}",
                                                                                      download=False))
                 video_url = results['entries'][0]['url']
-                print(video_url)
+
                 video_title = results['entries'][0].get('title', track_name)
 
                 song = {'url': video_url, 'title': video_title}
@@ -115,31 +122,39 @@ def run_bot():
             except Exception as e:
                 print(e)
 
+        # Зацикливание трека
         if message.content.startswith("/loop"):
             guild_id = message.guild.id
             loops[guild_id] = not loops.get(guild_id, False)
             state = "включено" if loops[guild_id] else "выключено"
             await message.channel.send(f"Зацикливание {state}")
 
+        # Поставить трек на паузу
         if message.content.startswith("/pause"):
             try:
                 voice_clients[message.guild.id].pause()
+                await message.channel.send(f'Музыка на паузе')
             except Exception as e:
                 print(e)
 
+        # Включить трек
         if message.content.startswith("/resume"):
             try:
                 voice_clients[message.guild.id].resume()
+                await message.channel.send(f'Музыка включена')
             except Exception as e:
                 print(e)
 
+        # Команда для того, чтобы бот покинул голосовой канал
         if message.content.startswith("/leave"):
             try:
                 voice_clients[message.guild.id].stop()
                 await voice_clients[message.guild.id].disconnect()
+                await message.channel.send(f'Бот покинул канал')
             except Exception as e:
                 print(e)
 
+        # Пролистать трек вперёд по очереди
         if message.content.startswith("/next"):
             if queues[message.guild.id]:
                 voice_clients[message.guild.id].stop()
@@ -147,17 +162,21 @@ def run_bot():
             else:
                 await message.channel.send("В очереди больше нет треков")
 
+        # Остоновка игры
         if message.content.startswith("/stop"):
             try:
                 voice_clients[message.guild.id].stop()
+                await message.channel.send(f'Музыка остановлена')
             except Exception as e:
                 print(e)
 
+        # Очистка очереди
         if message.content.startswith("/clear"):
             voice_clients[message.guild.id].stop()
             queues[message.guild.id] = []
             await message.channel.send("Очередь очищена")
 
+        # Помощь
         if message.content.startswith("/help"):
             await message.channel.send("/play 'ссылка' - команда для запуска музыки \n"
                                        "/pause - поставить трек на паузу \n"

@@ -1,4 +1,5 @@
 import discord
+from discord.ext import commands
 import os
 import asyncio
 import yt_dlp
@@ -13,12 +14,13 @@ def run_bot():
     client_id_ = os.getenv('YOUR_CLIENT_ID')
     client_secret_ = os.getenv('YOUR_CLIENT_SECRET')
     sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=client_id_, client_secret=client_secret_))
-    intents = discord.Intents.default()
-    intents.message_content = True
-    client = discord.Client(intents=intents)
+    intents = discord.Intents.all()
+    client = commands.Bot(command_prefix='', intents=intents)
+    client.remove_command('help')
 
     queues = {}
     voice_clients = {}
+    loops = {}
     yt_dl_options = {"format": "bestaudio/best"}
     ytdl = yt_dlp.YoutubeDL(yt_dl_options)
 
@@ -29,14 +31,20 @@ def run_bot():
         if guild_id not in queues:
             queues[guild_id] = []
         queues[guild_id].append(song)
-        if len(queues[guild_id]) == 1:  # If it's the only song, start playing
+        if len(queues[guild_id]) == 1:
             play_next_song(guild_id)
 
     def play_next_song(guild_id):
-        if queues[guild_id] and not voice_clients[guild_id].is_playing():
+        if queues[guild_id]:
             song = queues[guild_id].pop(0)
             player = discord.FFmpegOpusAudio(song['url'], **ffmpeg_options)
-            voice_clients[guild_id].play(player, after=lambda e: play_next_song(guild_id) if e is None else None)
+            voice_clients[guild_id].play(player, after=lambda e: handle_end_of_song(e, guild_id, song))
+
+    def handle_end_of_song(error, guild_id, song):
+        if error is None:
+            if loops.get(guild_id, False):
+                queues[guild_id].insert(0, song)
+            play_next_song(guild_id)
 
     @client.event
     async def on_ready():
@@ -108,6 +116,12 @@ def run_bot():
             except Exception as e:
                 print(e)
 
+        if message.content.startswith("/loop"):
+            guild_id = message.guild.id
+            loops[guild_id] = not loops.get(guild_id, False)
+            state = "включено" if loops[guild_id] else "выключено"
+            await message.channel.send(f"Зацикливание {state}")
+
         if message.content.startswith("/pause"):
             try:
                 voice_clients[message.guild.id].pause()
@@ -146,11 +160,11 @@ def run_bot():
             await message.channel.send("Очередь очищена")
 
         if message.content.startswith("/help"):
-            queues[message.guild.id] = []
             await message.channel.send("/play 'ссылка' - команда для запуска музыки \n"
                                        "/pause - поставить трек на паузу \n"
                                        "/resume - включить трек \n"
                                        "/stop - выключает трек \n"
+                                       "/loop - команда для зацикливания текущего трека \n"
                                        "/leave - комманда, чтобы бот покинул канал\n"
                                        "/next - следующий трек из очереди\n"
                                        "/clear - очистка очереди")
